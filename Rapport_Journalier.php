@@ -85,6 +85,18 @@ if (!function_exists('rapportFormatVariation')) {
     }
 }
 
+if (!function_exists('rapportFormatDateAvecJour')) {
+    function rapportFormatDateAvecJour($dateStr) {
+        $jours = array('Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim');
+        $timestamp = strtotime(str_replace('/', '-', $dateStr));
+        if ($timestamp === false) return $dateStr;
+        $numJour = (int)date('w', $timestamp);
+        if ($numJour == 0) $numJour = 6;
+        else $numJour--;
+        return $jours[$numJour].' '.$dateStr;
+    }
+}
+
 if (!function_exists('rapportEvaluerRegles')) {
     function rapportEvaluerRegles($contexte, $regles) {
         $resultats = array();
@@ -193,7 +205,7 @@ if (!function_exists('rapportTableauConsommations')) {
 
         foreach (array_keys($dates) as $date) {
             $html .= '<tr>';
-            $html .= '<td class="dateCol"><b>'.$date.'</b></td>';
+            $html .= '<td class="dateCol"><b>'.rapportFormatDateAvecJour($date).'</b></td>';
 
             foreach (array('electricite', 'eau', 'chauffage') as $nom) {
                 $jour = isset($index[$nom][$date]) ? $index[$nom][$date] : null;
@@ -269,7 +281,7 @@ if (!function_exists('rapportBuildHtml')) {
         $html .= '<div class="header"><table style="width:100%;border:none;color:white;margin:0;"><tr>';
         $html .= '<td style="border:none;text-align:left;vertical-align:top;">';
         $html .= '<h1 style="margin:0;">🏠 Rapport Domotique</h1>';
-        $html .= '<div style="margin-top:12px;font-size:14px;line-height:22px;">📅 Généré le '.date('d/m/Y à H:i').'<br>🗓️ Période : '.date('d/m/Y', strtotime($rapport['periode']['debut'])).' → '.date('d/m/Y', strtotime($rapport['periode']['fin'])).'</div>';
+        $html .= '<div style="margin-top:12px;font-size:14px;line-height:22px;">📅 Généré le '.date('d/m/Y à H:i').'<br>🗓️ Période : '.rapportFormatDateAvecJour(date('d/m/Y', strtotime($rapport['periode']['debut']))).' → '.rapportFormatDateAvecJour(date('d/m/Y', strtotime($rapport['periode']['fin']))).'</div>';
         $html .= '</td>';
         $html .= '<td style="border:none;text-align:right;vertical-align:top;white-space:nowrap;font-size:15px;line-height:28px;">🌅 Lever : '.$rapport['soleil']['lever'].'<br>🌇 Coucher : '.$rapport['soleil']['coucher'].'<br>☀️ Jour : '.$rapport['soleil']['duree'].'</td>';
         $html .= '</tr></table></div>';
