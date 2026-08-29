@@ -1,6 +1,4 @@
-﻿<?php
-
-$rapport = array();
+﻿$rapport = array();
 
 $config = array(
     'nbJoursHistorique' => 5,
@@ -188,10 +186,10 @@ if (!function_exists('rapportTableauConsommations')) {
         $html .= '<tr><th rowspan="2" class="dateCol">Date</th>';
         $html .= '<th colspan="3" class="groupTitle colElec">⚡ Électricité</th>';
         $html .= '<th colspan="3" class="groupTitle colEau">💧 Eau</th>';
-        $html .= '<th colspan="3" class="groupTitle colChauffage">🔥 Chauffage</th></tr>';
-        $html .= '<tr><th class="colElec">Conso</th><th>%</th><th>Tendance</th>';
-        $html .= '<th class="colEau">Conso</th><th>%</th><th>Tendance</th>';
-        $html .= '<th class="colChauffage">Conso</th><th>%</th><th>Tendance</th></tr>';
+        $html .= '<th colspan="2" class="groupTitle colChauffage">🔥 Chauffage</th></tr>';
+        $html .= '<tr><th class="colElec">Conso</th><th>%</th><th>Coût</th>';
+        $html .= '<th class="colEau">Conso</th><th>%</th><th>Coût</th>';
+        $html .= '<th class="colChauffage">Conso</th><th>%</th></tr>';
 
         foreach (array_keys($dates) as $date) {
             $html .= '<tr>';
@@ -200,15 +198,38 @@ if (!function_exists('rapportTableauConsommations')) {
             foreach (array('electricite', 'eau', 'chauffage') as $nom) {
                 $jour = isset($index[$nom][$date]) ? $index[$nom][$date] : null;
                 if ($jour === null) {
-                    $html .= '<td class="col'.$nom.' muted">-</td><td class="muted">-</td><td class="muted">-</td>';
+                    if ($nom === 'chauffage') {
+                        $html .= '<td class="col'.$nom.' muted">-</td><td class="muted">-</td>';
+                    } else {
+                        $html .= '<td class="col'.$nom.' muted">-</td><td class="muted">-</td><td class="muted">-</td>';
+                    }
                     continue;
                 }
-                $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
-                $couleur = rapportCouleurTendanceConso($jour['tendance']);
+
                 $decimales = $nom === 'electricite' ? 3 : 0;
-                $html .= '<td class="col'.$nom.'"><b>'.number_format($jour['valeur'], $decimales, ',', ' ').' '.($nom === 'electricite' ? 'kWh' : ($nom === 'eau' ? 'L' : 'h')).'</b></td>';
-                $html .= '<td><span style="color:'.$couleur.';">'.$variation.'</span></td>';
-                $html .= '<td><span style="color:'.$couleur.';font-weight:bold;">'.rapportLibelleTendanceConso($jour['tendance']).'</span></td>';
+                $valeur = number_format($jour['valeur'], $decimales, ',', ' ');
+                $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
+
+                if ($nom === 'electricite') {
+                    $kwhParJour = floatval($jour['valeur']);
+                    $cout = 0.5211 + ($kwhParJour * 0.2001);
+                    $coutFormate = number_format($cout, 2, ',', ' ').' €';
+                    $html .= '<td class="col'.$nom.'"><b>'.$valeur.' kWh</b></td>';
+                    $html .= '<td><span style="color:#757575;">'.$variation.'</span></td>';
+                    $html .= '<td><span style="font-weight:bold;">'.$coutFormate.'</span></td>';
+                } elseif ($nom === 'eau') {
+                    $litresParJour = floatval($jour['valeur']);
+                    $m3ParJour = $litresParJour / 1000;
+                    $cout = $m3ParJour * 3.67;
+                    $coutFormate = number_format($cout, 2, ',', ' ').' €';
+                    $html .= '<td class="col'.$nom.'"><b>'.$valeur.' L</b></td>';
+                    $html .= '<td><span style="color:#757575;">'.$variation.'</span></td>';
+                    $html .= '<td><span style="font-weight:bold;">'.$coutFormate.'</span></td>';
+                } else {
+                    $couleur = rapportCouleurTendanceConso($jour['tendance']);
+                    $html .= '<td class="col'.$nom.'"><b>'.$valeur.' h</b></td>';
+                    $html .= '<td><span style="color:'.$couleur.';">'.$variation.'</span></td>';
+                }
             }
 
             $html .= '</tr>';
@@ -279,7 +300,7 @@ if (!function_exists('rapportBuildHtml')) {
         }
         $html .= '</div>';
 
-        $html .= '<div class="section"><h2>🌤️ Prévisions météo</h2><table><tr><th style="width:120px;">Jour</th><th style="width:100px;">Date</th><th>Prévision</th><th style="width:90px;">Évolution</th><th style="width:130px;">Tendance</th></tr>';
+        $html .= '<div class="section"><h2>🌤️ Prévisions météo</h2><table><tr><th style="width:120px;">Jour</th><th style="width:100px;">Date</th><th>Prévision</th><th style="width:120px;">Températures</th><th style="width:90px;">Évolution</th></tr>';
         foreach ($rapport['comparaisons']['meteo'] as $jour) {
             foreach ($rapport['meteo'] as $meteo) {
                 if ($meteo['date'] !== $jour['date']) {
@@ -287,7 +308,7 @@ if (!function_exists('rapportBuildHtml')) {
                 }
                 $couleur = rapportCouleurTendanceMeteo($jour['tendance']);
                 $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f °C', $jour['variation']);
-                $html .= '<tr><td><b>'.$meteo['jour'].'</b></td><td>'.$meteo['date'].'</td><td>'.rapportIconeMeteo($meteo['condition']).' '.$meteo['condition'].' ('.$meteo['temp_min'].' → '.$meteo['temp_max'].' °C)</td><td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td><td><span style="color:'.$couleur.';font-weight:bold;">'.rapportLibelleTendanceMeteo($jour['tendance']).'</span></td></tr>';
+                $html .= '<tr><td><b>'.$meteo['jour'].'</b></td><td>'.$meteo['date'].'</td><td>'.rapportIconeMeteo($meteo['condition']).' '.$meteo['condition'].'</td><td><b>'.$meteo['temp_min'].' → '.$meteo['temp_max'].' °C</b></td><td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td></tr>';
                 break;
             }
         }
