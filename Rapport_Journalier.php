@@ -198,6 +198,32 @@ if (!function_exists('rapportTableauConsommations')) {
         $html .= '<th class="colEau">Conso</th><th>%</th><th>Coût</th>';
         $html .= '<th class="colChauffage">Conso</th><th>%</th></tr>';
 
+        $html .= '<tr style="background:#F5F0FC;font-size:10px;font-weight:normal;">';
+        $html .= '<td class="dateCol">Ref moy/j</td>';
+        
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
+            $moyenne = $rapport['moyennes31Jours'][$nom];
+            if ($nom === 'chauffage') {
+                $total = number_format($moyenne, 1, ',', ' ');
+                $html .= '<td class="col'.$nom.'">'.$total.' h</td>';
+                $html .= '<td>-</td>';
+            } else {
+                $decimales = $nom === 'electricite' ? 3 : 0;
+                $total = number_format($moyenne, $decimales, ',', ' ');
+                $html .= '<td class="col'.$nom.'">'.$total.($nom === 'electricite' ? ' kWh' : ' L').'</td>';
+                $html .= '<td>-</td>';
+                
+                if ($nom === 'electricite') {
+                    $coutMoyen = 0.5211 + ($moyenne * 0.2001);
+                } else {
+                    $coutMoyen = ($moyenne / 1000) * 3.67;
+                }
+                $html .= '<td>'.number_format($coutMoyen, 2, ',', ' ').' €</td>';
+            }
+        }
+        
+        $html .= '</tr>';
+
         $totaux = array('electricite' => 0, 'eau' => 0, 'chauffage' => 0);
 
         $debutSemaine = strtotime($rapport['periode']['debut']);
@@ -301,31 +327,6 @@ if (!function_exists('rapportTableauConsommations')) {
                     $coutFormate = number_format($coutTotal, 2, ',', ' ').' €';
                 }
                 $html .= '<td>'.$coutFormate.'</td>';
-            }
-        }
-        
-        $html .= '</tr>';
-        $html .= '<tr style="background:#FFFFFF;font-size:10px;font-weight:normal;">';
-        $html .= '<td class="dateCol">Ref moy/j</td>';
-        
-        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
-            $moyenne = $rapport['moyennes31Jours'][$nom];
-            if ($nom === 'chauffage') {
-                $total = number_format($moyenne, 1, ',', ' ');
-                $html .= '<td class="col'.$nom.'">'.$total.' h</td>';
-                $html .= '<td>-</td>';
-            } else {
-                $decimales = $nom === 'electricite' ? 3 : 0;
-                $total = number_format($moyenne, $decimales, ',', ' ');
-                $html .= '<td class="col'.$nom.'">'.$total.($nom === 'electricite' ? ' kWh' : ' L').'</td>';
-                $html .= '<td>-</td>';
-                
-                if ($nom === 'electricite') {
-                    $coutMoyen = 0.5211 + ($moyenne * 0.2001);
-                } else {
-                    $coutMoyen = ($moyenne / 1000) * 3.67;
-                }
-                $html .= '<td>'.number_format($coutMoyen, 2, ',', ' ').' €</td>';
             }
         }
         
