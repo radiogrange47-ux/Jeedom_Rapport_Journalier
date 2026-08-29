@@ -1,7 +1,8 @@
 ﻿$rapport = array();
+$rapport['historiqueSemainePrecedente'] = array('electricite' => 0, 'eau' => 0, 'chauffage' => 0);
 
 $config = array(
-    'nbJoursHistorique' => 5,
+    'nbJoursHistorique' => 7,
     'seuils' => array(
         'gel' => 0,
         'froid' => 5,
@@ -175,27 +176,21 @@ if (!function_exists('rapportLibelleTendanceMeteo')) {
 
 if (!function_exists('rapportTableauConsommations')) {
     function rapportTableauConsommations($rapport) {
-        $unites = array(
-            'electricite' => 'kWh',
-            'eau' => 'L',
-            'chauffage' => 'h'
-        );
-
-        $dates = array();
-        $index = array();
-
-        foreach ($unites as $nom => $unite) {
-            $index[$nom] = array();
+        $jours = array('Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim');
+        $index = array('electricite' => array(), 'eau' => array(), 'chauffage' => array());
+        
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
             foreach ($rapport['historique'][$nom] as $jour) {
-                $dates[$jour['date']] = strtotime(str_replace('/', '-', $jour['date']));
-                $index[$nom][$jour['date']] = $jour;
+                $timestamp = strtotime(str_replace('/', '-', $jour['date']));
+                $numJour = (int)date('w', $timestamp);
+                if ($numJour == 0) $numJour = 6;
+                else $numJour--;
+                $index[$nom][$numJour] = $jour;
             }
         }
 
-        uasort($dates, function ($a, $b) { return $a <=> $b; });
-
-        $html = '<div class="section"><h2>Consommations</h2><table class="consoTable">';
-        $html .= '<tr><th rowspan="2" class="dateCol">Date</th>';
+        $html = '<div class="section"><h2>Consommations</h2><table class="consoTable"><colgroup><col style="width:12%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"></colgroup>';
+        $html .= '<tr><th rowspan="2" class="dateCol">Jour</th>';
         $html .= '<th colspan="3" class="groupTitle colElec">⚡ Électricité</th>';
         $html .= '<th colspan="3" class="groupTitle colEau">💧 Eau</th>';
         $html .= '<th colspan="2" class="groupTitle colChauffage">🔥 Chauffage</th></tr>';
@@ -203,12 +198,18 @@ if (!function_exists('rapportTableauConsommations')) {
         $html .= '<th class="colEau">Conso</th><th>%</th><th>Coût</th>';
         $html .= '<th class="colChauffage">Conso</th><th>%</th></tr>';
 
-        foreach (array_keys($dates) as $date) {
+        $totaux = array('electricite' => 0, 'eau' => 0, 'chauffage' => 0);
+
+        $debutSemaine = strtotime($rapport['periode']['debut']);
+        $finPeriode = strtotime($rapport['periode']['fin']);
+        for ($i = 0; $i < 7; $i++) {
+            $dateJour = strtotime('+'.$i.' days', $debutSemaine);
             $html .= '<tr>';
-            $html .= '<td class="dateCol"><b>'.rapportFormatDateAvecJour($date).'</b></td>';
+            $dateStyle = $dateJour > $finPeriode ? ' style="color:#8A8593;"' : '';
+            $html .= '<td class="dateCol"'.$dateStyle.'><b>'.$jours[$i].'</b><br>'.date('d/m/Y', $dateJour).'</td>';
 
             foreach (array('electricite', 'eau', 'chauffage') as $nom) {
-                $jour = isset($index[$nom][$date]) ? $index[$nom][$date] : null;
+                $jour = isset($index[$nom][$i]) ? $index[$nom][$i] : null;
                 if ($jour === null) {
                     if ($nom === 'chauffage') {
                         $html .= '<td class="col'.$nom.' muted">-</td><td class="muted">-</td>';
@@ -221,13 +222,15 @@ if (!function_exists('rapportTableauConsommations')) {
                 $decimales = $nom === 'electricite' ? 3 : 0;
                 $valeur = number_format($jour['valeur'], $decimales, ',', ' ');
                 $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
+                $couleur = rapportCouleurTendanceConso($jour['tendance']);
+                $totaux[$nom] += floatval($jour['valeur']);
 
                 if ($nom === 'electricite') {
                     $kwhParJour = floatval($jour['valeur']);
                     $cout = 0.5211 + ($kwhParJour * 0.2001);
                     $coutFormate = number_format($cout, 2, ',', ' ').' €';
                     $html .= '<td class="col'.$nom.'"><b>'.$valeur.' kWh</b></td>';
-                    $html .= '<td><span style="color:#757575;">'.$variation.'</span></td>';
+                    $html .= '<td><span style="color:'.$couleur.';">'.$variation.'</span></td>';
                     $html .= '<td><span style="font-weight:bold;">'.$coutFormate.'</span></td>';
                 } elseif ($nom === 'eau') {
                     $litresParJour = floatval($jour['valeur']);
@@ -235,10 +238,9 @@ if (!function_exists('rapportTableauConsommations')) {
                     $cout = $m3ParJour * 3.67;
                     $coutFormate = number_format($cout, 2, ',', ' ').' €';
                     $html .= '<td class="col'.$nom.'"><b>'.$valeur.' L</b></td>';
-                    $html .= '<td><span style="color:#757575;">'.$variation.'</span></td>';
+                    $html .= '<td><span style="color:'.$couleur.';">'.$variation.'</span></td>';
                     $html .= '<td><span style="font-weight:bold;">'.$coutFormate.'</span></td>';
                 } else {
-                    $couleur = rapportCouleurTendanceConso($jour['tendance']);
                     $html .= '<td class="col'.$nom.'"><b>'.$valeur.' h</b></td>';
                     $html .= '<td><span style="color:'.$couleur.';">'.$variation.'</span></td>';
                 }
@@ -247,6 +249,62 @@ if (!function_exists('rapportTableauConsommations')) {
             $html .= '</tr>';
         }
 
+        $html .= '<tr style="background:#E8E3F1;font-weight:bold;">';
+        $html .= '<td class="dateCol"><b>Total</b></td>';
+
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
+            if ($nom === 'chauffage') {
+                $decimales = 1;
+                $total = number_format($totaux[$nom], $decimales, ',', ' ');
+                $html .= '<td class="col'.$nom.'" style="font-weight:bold;">'.$total.' h</td>';
+                $html .= '<td>-</td>';
+            } else {
+                $decimales = $nom === 'electricite' ? 3 : 0;
+                $total = number_format($totaux[$nom], $decimales, ',', ' ');
+                $html .= '<td class="col'.$nom.'" style="font-weight:bold;">'.$total.($nom === 'electricite' ? ' kWh' : ' L').'</td>';
+                $html .= '<td>-</td>';
+                
+                if ($nom === 'electricite') {
+                    $coutTotal = 0.5211 + ($totaux[$nom] * 0.2001);
+                    $coutFormate = number_format($coutTotal, 2, ',', ' ').' €';
+                } else {
+                    $coutTotal = ($totaux[$nom] / 1000) * 3.67;
+                    $coutFormate = number_format($coutTotal, 2, ',', ' ').' €';
+                }
+                $html .= '<td style="font-weight:bold;">'.$coutFormate.'</td>';
+            }
+        }
+
+        $html .= '</tr>';
+        $html .= '</table>';
+
+        $html .= '<table class="consoTable consoPrevious"><colgroup><col style="width:12%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"><col style="width:11%;"></colgroup>';
+        $html .= '<tr style="background:#F5F0FC;font-size:10px;font-weight:normal;border-top:2px solid #7A5CC7;">';
+        $html .= '<td class="dateCol">Semaine<br>précédente</td>';
+        
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
+            if ($nom === 'chauffage') {
+                $total = number_format($rapport['historiqueSemainePrecedente'][$nom], 1, ',', ' ');
+                $html .= '<td class="col'.$nom.'">'.$total.' h</td>';
+                $html .= '<td>-</td>';
+            } else {
+                $decimales = $nom === 'electricite' ? 3 : 0;
+                $total = number_format($rapport['historiqueSemainePrecedente'][$nom], $decimales, ',', ' ');
+                $html .= '<td class="col'.$nom.'">'.$total.($nom === 'electricite' ? ' kWh' : ' L').'</td>';
+                $html .= '<td>-</td>';
+                
+                if ($nom === 'electricite') {
+                    $coutTotal = 0.5211 + ($rapport['historiqueSemainePrecedente'][$nom] * 0.2001);
+                    $coutFormate = number_format($coutTotal, 2, ',', ' ').' €';
+                } else {
+                    $coutTotal = ($rapport['historiqueSemainePrecedente'][$nom] / 1000) * 3.67;
+                    $coutFormate = number_format($coutTotal, 2, ',', ' ').' €';
+                }
+                $html .= '<td>'.$coutFormate.'</td>';
+            }
+        }
+        
+        $html .= '</tr>';
         $html .= '</table></div>';
         return $html;
     }
@@ -267,8 +325,11 @@ if (!function_exists('rapportBuildHtml')) {
         $html .= 'th{background:#7A5CC7;color:#FFFFFF;padding:8px;font-weight:600;text-align:left;}';
         $html .= 'td{padding:6px 7px;border-bottom:1px solid #E8E3F1;}';
         $html .= 'tr:nth-child(even){background:#FCFBFE;}';
-        $html .= '.consoTable th,.consoTable td{font-size:12px;line-height:1.25;padding:6px 5px;text-align:center;vertical-align:middle;}';
+        $html .= '.consoTable{table-layout:fixed;}';
+        $html .= '.consoTable th,.consoTable td{font-size:12px;line-height:1.25;padding:6px 5px;text-align:center;vertical-align:middle;overflow-wrap:break-word;}';
         $html .= '.consoTable td+td,.consoTable th+th{border-left:1px solid #D8D5E5;}';
+        $html .= '.consoTable th:nth-child(4),.consoTable td:nth-child(4){border-right:3px solid #43315F !important;}';
+        $html .= '.consoTable th:nth-child(7),.consoTable td:nth-child(7){border-right:3px solid #43315F !important;}';
         $html .= '.consoTable .dateCol{width:95px;text-align:left;white-space:nowrap;font-weight:bold;}';
         $html .= '.consoTable .groupTitle{text-align:center;font-size:13px;}';
         $html .= '.consoTable .colElec{border-left:3px solid #43315F !important;}';
@@ -352,10 +413,12 @@ if (!function_exists('rapportBuildHtml')) {
 }
 
 $rapport['configuration'] = $config;
+$debutSemaine = strtotime('monday this week');
+$finHier = strtotime('yesterday');
 $rapport['periode'] = array(
     'generation' => date('Y-m-d H:i:s'),
-    'debut' => date('Y-m-d 00:00:00', strtotime('-'.$config['nbJoursHistorique'].' days')),
-    'fin' => date('Y-m-d 23:59:59', strtotime('-1 day'))
+    'debut' => date('Y-m-d 00:00:00', $debutSemaine),
+    'fin' => date('Y-m-d 23:59:59', $finHier)
 );
 
 $rapport['soleil'] = array(
@@ -382,9 +445,13 @@ $historiqueIds = array(
     'chauffage' => 639
 );
 
+$debutSemainePrecedente = date('Y-m-d 00:00:00', strtotime('-7 days', $debutSemaine));
+$finSemainePrecedente = date('Y-m-d 23:59:59', strtotime('-1 day', $debutSemaine));
+
 foreach ($historiqueIds as $nom => $idCmd) {
     $cmd = cmd::byId($idCmd);
     $rapport['historique'][$nom] = array();
+    $rapport['historiqueSemainePrecedente'][$nom] = 0;
 
     if (!is_object($cmd)) {
         rapportAjouterAlerte($rapport, 'warning', 'configuration', 'Commande historique introuvable : '.$nom, $nom);
@@ -408,6 +475,11 @@ foreach ($historiqueIds as $nom => $idCmd) {
     }
 
     $rapport['historique'][$nom] = array_values($rapport['historique'][$nom]);
+    
+    $historySemainePrecedente = $cmd->getHistory($debutSemainePrecedente, $finSemainePrecedente);
+    foreach ($historySemainePrecedente as $h) {
+        $rapport['historiqueSemainePrecedente'][$nom] += floatval($h->getValue());
+    }
 }
 
 $rapport['meteo'] = array();
