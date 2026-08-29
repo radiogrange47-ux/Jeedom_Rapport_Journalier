@@ -234,7 +234,7 @@ if (!function_exists('rapportTableauConsommations')) {
             $dateJour = strtotime('+'.$i.' days', $debutSemaine);
             $html .= '<tr>';
             $dateStyle = $dateJour > $finPeriode ? ' style="color:#8A8593;"' : '';
-            $html .= '<td class="dateCol"'.$dateStyle.'><b>'.$jours[$i].'</b><br>'.date('d/m/Y', $dateJour).'</td>';
+            $html .= '<td class="dateCol"'.$dateStyle.'><b>'.$jours[$i].'</b><br>'.date('d/m', $dateJour).'</td>';
 
             foreach (array('electricite', 'eau', 'chauffage') as $nom) {
                 $jour = isset($index[$nom][$i]) ? $index[$nom][$i] : null;
@@ -333,17 +333,80 @@ if (!function_exists('rapportTableauConsommations')) {
         }
         
         $html .= '</tr>';
-        $html .= '</table></div>';
+        $html .= '</table>';
+        $html .= '<div class="mobileOnly">'.rapportTableauConsommationsMobile($rapport).'</div></div>';
+        return $html;
+    }
+}
+
+if (!function_exists('rapportTableauConsommationsMobile')) {
+    function rapportTableauConsommationsMobile($rapport) {
+        $jours = array('Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim');
+        $index = array('electricite' => array(), 'eau' => array(), 'chauffage' => array());
+        $libelles = array('electricite' => '⚡ Électricité', 'eau' => '💧 Eau', 'chauffage' => '🔥 Chauffage');
+
+        foreach ($index as $nom => $vide) {
+            foreach ($rapport['historique'][$nom] as $jour) {
+                $numJour = (int)date('w', strtotime(str_replace('/', '-', $jour['date'])));
+                $index[$nom][$numJour === 0 ? 6 : $numJour - 1] = $jour;
+            }
+        }
+
+        $html = '';
+        $debutSemaine = strtotime($rapport['periode']['debut']);
+        $finPeriode = strtotime($rapport['periode']['fin']);
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
+            $unite = $nom === 'electricite' ? 'kWh' : ($nom === 'eau' ? 'L' : 'h');
+            $decimales = $nom === 'electricite' ? 3 : ($nom === 'eau' ? 0 : 1);
+            $moyenne = number_format($rapport['moyennes31Jours'][$nom], $decimales, ',', ' ');
+            $html .= '<table class="mobileConso"><tr><th colspan="'.($nom === 'chauffage' ? '3' : '4').'">'.$libelles[$nom].' <span>Moy. : '.$moyenne.' '.$unite.'/j</span></th></tr>';
+            $html .= '<tr><th>Jour</th><th>Conso</th><th>Évol.</th>'.($nom === 'chauffage' ? '' : '<th>Coût</th>').'</tr>';
+            $total = 0;
+            for ($i = 0; $i < 7; $i++) {
+                $dateJour = strtotime('+'.$i.' days', $debutSemaine);
+                $jour = isset($index[$nom][$i]) ? $index[$nom][$i] : null;
+                $dateStyle = $dateJour > $finPeriode ? ' class="future"' : '';
+                $html .= '<tr'.$dateStyle.'><td><b>'.$jours[$i].'</b><br><small>'.date('d/m', $dateJour).'</small></td>';
+                if ($jour === null) {
+                    $html .= '<td>-</td><td>-</td>'.($nom === 'chauffage' ? '' : '<td>-</td>');
+                } else {
+                    $valeur = floatval($jour['valeur']);
+                    $total += $valeur;
+                    $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
+                    $couleur = rapportCouleurTendanceConso($jour['tendance']);
+                    $html .= '<td><b>'.number_format($valeur, $decimales, ',', ' ').' '.$unite.'</b></td>';
+                    $html .= '<td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td>';
+                    if ($nom !== 'chauffage') {
+                        $cout = $nom === 'electricite' ? 0.5211 + ($valeur * 0.2001) : ($valeur / 1000) * 3.67;
+                        $html .= '<td><b>'.number_format($cout, 2, ',', ' ').' €</b></td>';
+                    }
+                }
+                $html .= '</tr>';
+            }
+            $html .= '<tr class="total"><td>Total</td><td><b>'.number_format($total, $decimales, ',', ' ').' '.$unite.'</b></td><td>-</td>';
+            if ($nom !== 'chauffage') {
+                $coutTotal = $nom === 'electricite' ? 0.5211 + ($total * 0.2001) : ($total / 1000) * 3.67;
+                $html .= '<td><b>'.number_format($coutTotal, 2, ',', ' ').' €</b></td>';
+            }
+            $html .= '</tr>';
+            $precedent = number_format($rapport['historiqueSemainePrecedente'][$nom], $decimales, ',', ' ');
+            $html .= '<tr class="previous"><td>Semaine préc.</td><td>'.$precedent.' '.$unite.'</td><td>-</td>';
+            if ($nom !== 'chauffage') {
+                $precedentCout = $nom === 'electricite' ? 0.5211 + ($rapport['historiqueSemainePrecedente'][$nom] * 0.2001) : ($rapport['historiqueSemainePrecedente'][$nom] / 1000) * 3.67;
+                $html .= '<td>'.number_format($precedentCout, 2, ',', ' ').' €</td>';
+            }
+            $html .= '</tr></table>';
+        }
         return $html;
     }
 }
 
 if (!function_exists('rapportBuildHtml')) {
     function rapportBuildHtml($rapport) {
-        $html = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Rapport Domotique</title>';
+        $html = '<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Rapport Domotique</title>';
         $html .= '<style>';
         $html .= 'body{margin:0;padding:10px;background:#F8F7FA;font-family:Arial,Helvetica,sans-serif;color:#2E2A36;}';
-        $html .= '.container{max-width:900px;margin:auto;background:#FFFFFF;border-radius:10px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.10);}';
+        $html .= '.container{max-width:960px;margin:auto;background:#FFFFFF;border-radius:10px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,.10);}';
         $html .= '.header{background:#5B3B8A;color:#FFFFFF;padding:18px 24px;}';
         $html .= '.header h1{margin:0;font-size:30px;font-weight:600;}';
         $html .= '.section{padding:12px 18px;}';
@@ -365,6 +428,8 @@ if (!function_exists('rapportBuildHtml')) {
         $html .= '.consoTable .colChauffage{border-left:3px solid #43315F !important;}';
         $html .= '.muted{color:#8A8593;}';
         $html .= '.footer{background:#F5F0FC;padding:12px;text-align:center;font-size:12px;color:#756B84;border-top:1px solid #DDD6EC;}';
+        $html .= '.mobileOnly{display:none;}';
+        $html .= '@media only screen and (max-width:600px){body{padding:0;background:#FFFFFF;}.container{width:100% !important;margin:0;border-radius:0;box-shadow:none;}.header{padding:16px 14px;}.header h1{font-size:23px !important;}.header table,.header tbody,.header tr,.header td{display:block !important;width:100% !important;text-align:left !important;}.header td+td{margin-top:10px;font-size:13px !important;line-height:22px !important;}.section{padding:14px 10px;}.section h2{font-size:18px;}.section table:not(.consoTable):not(.mobileConso){font-size:13px;}.section table:not(.consoTable):not(.mobileConso) th,.section table:not(.consoTable):not(.mobileConso) td{padding:7px 5px;}.consoTable{display:none !important;}.mobileOnly{display:block !important;}.mobileConso{display:table !important;width:100% !important;table-layout:fixed;margin:0 0 14px 0;border:1px solid #DDD6EC;}.mobileConso th,.mobileConso td{padding:7px 4px !important;text-align:center !important;font-size:12px !important;line-height:1.25;overflow-wrap:normal;word-break:normal;}.mobileConso th{background:#7A5CC7;color:#FFFFFF;}.mobileConso th span{display:block;font-size:10px;font-weight:normal;margin-top:2px;}.mobileConso td{border-bottom:1px solid #E8E3F1;}.mobileConso .total{background:#E8E3F1;font-weight:bold;}.mobileConso .previous{background:#F5F0FC;color:#4B3C63;}.mobileConso .future{color:#8A8593;}.footer{padding:12px 8px;}}';
         $html .= '</style></head><body><div class="container">';
 
         $html .= '<div class="header"><table style="width:100%;border:none;color:white;margin:0;"><tr>';
@@ -409,7 +474,7 @@ if (!function_exists('rapportBuildHtml')) {
                 }
                 $couleur = rapportCouleurTendanceMeteo($jour['tendance']);
                 $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f °C', $jour['variation']);
-                $html .= '<tr><td><b>'.$meteo['jour'].'</b></td><td>'.$meteo['date'].'</td><td>'.rapportIconeMeteo($meteo['condition']).' '.$meteo['condition'].'</td><td><b>'.$meteo['temp_min'].' → '.$meteo['temp_max'].' °C</b></td><td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td></tr>';
+                $html .= '<tr><td><b>'.$meteo['jour'].'</b></td><td>'.date('d/m', strtotime(str_replace('/', '-', $meteo['date']))).'</td><td>'.rapportIconeMeteo($meteo['condition']).' '.$meteo['condition'].'</td><td><b>'.$meteo['temp_min'].' → '.$meteo['temp_max'].' °C</b></td><td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td></tr>';
                 break;
             }
         }
@@ -700,7 +765,7 @@ foreach ($rapport['meteo'] as $jour) {
         'temp_min' => floatval($jour['temp_min']),
         'temp_max' => floatval($jour['temp_max']),
         'condition' => $jour['condition'],
-        'libelle' => $jour['jour'].' '.$jour['date'],
+        'libelle' => $jour['jour'].' '.date('d/m', strtotime(str_replace('/', '-', $jour['date']))),
         'seuils' => $config['seuils']
     );
 
