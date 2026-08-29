@@ -305,6 +305,31 @@ if (!function_exists('rapportTableauConsommations')) {
         }
         
         $html .= '</tr>';
+        $html .= '<tr style="background:#FFFFFF;font-size:10px;font-weight:normal;">';
+        $html .= '<td class="dateCol">Ref moy/j</td>';
+        
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
+            $moyenne = $rapport['moyennes31Jours'][$nom];
+            if ($nom === 'chauffage') {
+                $total = number_format($moyenne, 1, ',', ' ');
+                $html .= '<td class="col'.$nom.'">'.$total.' h</td>';
+                $html .= '<td>-</td>';
+            } else {
+                $decimales = $nom === 'electricite' ? 3 : 0;
+                $total = number_format($moyenne, $decimales, ',', ' ');
+                $html .= '<td class="col'.$nom.'">'.$total.($nom === 'electricite' ? ' kWh' : ' L').'</td>';
+                $html .= '<td>-</td>';
+                
+                if ($nom === 'electricite') {
+                    $coutMoyen = 0.5211 + ($moyenne * 0.2001);
+                } else {
+                    $coutMoyen = ($moyenne / 1000) * 3.67;
+                }
+                $html .= '<td>'.number_format($coutMoyen, 2, ',', ' ').' €</td>';
+            }
+        }
+        
+        $html .= '</tr>';
         $html .= '</table></div>';
         return $html;
     }
@@ -439,6 +464,8 @@ if ($heureLever !== false && $heureCoucher !== false && $heureCoucher > $heureLe
 }
 
 $rapport['historique'] = array();
+$rapport['historique31Jours'] = array();
+$rapport['moyennes31Jours'] = array();
 $historiqueIds = array(
     'electricite' => 84,
     'eau' => 4204,
@@ -451,6 +478,7 @@ $finSemainePrecedente = date('Y-m-d 23:59:59', strtotime('-1 day', $debutSemaine
 foreach ($historiqueIds as $nom => $idCmd) {
     $cmd = cmd::byId($idCmd);
     $rapport['historique'][$nom] = array();
+    $rapport['historique31Jours'][$nom] = array();
     $rapport['historiqueSemainePrecedente'][$nom] = 0;
 
     if (!is_object($cmd)) {
@@ -480,6 +508,29 @@ foreach ($historiqueIds as $nom => $idCmd) {
     foreach ($historySemainePrecedente as $h) {
         $rapport['historiqueSemainePrecedente'][$nom] += floatval($h->getValue());
     }
+
+    $debutHistorique31Jours = date('Y-m-d 00:00:00', strtotime('-31 days', $debutSemaine));
+    $history31Jours = $cmd->getHistory($debutHistorique31Jours, $rapport['periode']['fin']);
+    foreach ($history31Jours as $h) {
+        $date = date('d/m/Y', strtotime($h->getDatetime()));
+        if (!isset($rapport['historique31Jours'][$nom][$date])) {
+            $rapport['historique31Jours'][$nom][$date] = 0;
+        }
+        $rapport['historique31Jours'][$nom][$date] += floatval($h->getValue());
+    }
+}
+
+foreach ($historiqueIds as $nom => $idCmd) {
+    $total31Jours = 0;
+    $nombreJours31 = 0;
+    for ($i = 1; $i <= 31; $i++) {
+        $dateMoyenne = date('d/m/Y', strtotime('-'.$i.' days', $finHier));
+        if (isset($rapport['historique31Jours'][$nom][$dateMoyenne])) {
+            $total31Jours += $rapport['historique31Jours'][$nom][$dateMoyenne];
+            $nombreJours31++;
+        }
+    }
+    $rapport['moyennes31Jours'][$nom] = $nombreJours31 > 0 ? $total31Jours / $nombreJours31 : 0;
 }
 
 $rapport['meteo'] = array();
@@ -663,30 +714,55 @@ $libellesConsommation = array(
 );
 
 foreach ($rapport['historique'] as $nom => $historique) {
+    $joursConsecutifs = 0;
+    $datePrecedente = null;
+    $dernierDepassement = null;
+    $libelle = isset($libellesConsommation[$nom]) ? $libellesConsommation[$nom] : ucfirst($nom);
+
+    usort($historique, function ($a, $b) {
+        return strtotime(str_replace('/', '-', $a['date'])) <=> strtotime(str_replace('/', '-', $b['date']));
+    });
+
     foreach ($historique as $jour) {
-        if ($jour['variation'] === null) continue;
+        $dateJour = strtotime(str_replace('/', '-', $jour['date']));
+        $moyenne31 = 0;
+        $nombreJoursMoyenne = 0;
 
-        $score = 0;
-        $libelle = isset($libellesConsommation[$nom]) ? $libellesConsommation[$nom] : ucfirst($nom);
-
-        if ($jour['variation'] >= $config['seuils']['variationImportante']) {
-            $score += 2;
-        } elseif ($jour['variation'] >= $config['seuils']['variationStable']) {
-            $score += 1;
+        for ($i = 1; $i <= 31; $i++) {
+            $dateMoyenne = date('d/m/Y', strtotime('-'.$i.' days', $dateJour));
+            if (isset($rapport['historique31Jours'][$nom][$dateMoyenne])) {
+                $moyenne31 += $rapport['historique31Jours'][$nom][$dateMoyenne];
+                $nombreJoursMoyenne++;
+            }
         }
 
-        if ($jour['variation'] <= -$config['seuils']['variationImportante']) {
-            $score += 2;
-        } elseif ($jour['variation'] <= -$config['seuils']['variationStable']) {
-            $score += 1;
+        $moyenneReference = $nombreJoursMoyenne > 0 ? $moyenne31 / $nombreJoursMoyenne : 0;
+        $depasseMoyenne = $nombreJoursMoyenne > 0 && floatval($jour['valeur']) > ($moyenneReference * 1.3);
+        $jourApresPrecedent = $datePrecedente !== null && $dateJour === strtotime('+1 day', $datePrecedente);
+
+        if ($depasseMoyenne && $jourApresPrecedent) {
+            $joursConsecutifs++;
+        } elseif ($depasseMoyenne) {
+            $joursConsecutifs = 1;
+        } else {
+            $joursConsecutifs = 0;
         }
 
-        if ($score > 0) {
-            $niveau = rapportDetermineNiveau($score);
-            $sens = $jour['variation'] >= 0 ? 'hausse' : 'baisse';
-            $message = $libelle.' en forte '.$sens.' le '.$jour['date'].' ('.rapportFormatVariation($jour['variation']).' %)';
-            rapportAjouterAlerte($rapport, $niveau, 'consommation', $message, $nom);
+        if ($depasseMoyenne) {
+            $dernierDepassement = array(
+                'nombre' => $joursConsecutifs,
+                'date' => $jour['date']
+            );
+        } else {
+            $dernierDepassement = null;
         }
+
+        $datePrecedente = $dateJour;
+    }
+
+    if ($dernierDepassement !== null && $dernierDepassement['nombre'] >= 2) {
+        $message = $libelle.' supérieure à la moyenne de référence de 30 % pendant '.$dernierDepassement['nombre'].' jours consécutifs';
+        rapportAjouterAlerte($rapport, 'warning', 'consommation', $message, $nom);
     }
 }
 
