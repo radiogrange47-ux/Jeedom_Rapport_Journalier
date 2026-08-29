@@ -3,6 +3,8 @@ $rapport['historiqueSemainePrecedente'] = array('electricite' => 0, 'eau' => 0, 
 
 $config = array(
     'nbJoursHistorique' => 7,
+    // Seuil d'alerte : 1.2 = 120 % de la moyenne des 31 jours précédents
+    'seuilMoyenneConso' => 1.2,
     'seuils' => array(
         'gel' => 0,
         'froid' => 5,
@@ -738,7 +740,7 @@ foreach ($rapport['historique'] as $nom => $historique) {
         }
 
         $moyenneReference = $nombreJoursMoyenne > 0 ? $moyenne31 / $nombreJoursMoyenne : 0;
-        $depasseMoyenne = $nombreJoursMoyenne > 0 && floatval($jour['valeur']) > ($moyenneReference * 1.3);
+        $depasseMoyenne = $nombreJoursMoyenne > 0 && floatval($jour['valeur']) > ($moyenneReference * $config['seuilMoyenneConso']);
         $jourApresPrecedent = $datePrecedente !== null && $dateJour === strtotime('+1 day', $datePrecedente);
 
         if ($depasseMoyenne && $jourApresPrecedent) {
@@ -762,7 +764,7 @@ foreach ($rapport['historique'] as $nom => $historique) {
     }
 
     if ($dernierDepassement !== null && $dernierDepassement['nombre'] >= 2) {
-        $message = $libelle.' supérieure à la moyenne de référence de 30 % pendant '.$dernierDepassement['nombre'].' jours consécutifs';
+        $message = $libelle.' supérieure à la moyenne de référence de 20 % pendant '.$dernierDepassement['nombre'].' jours consécutifs';
         rapportAjouterAlerte($rapport, 'warning', 'consommation', $message, $nom);
     }
 }
