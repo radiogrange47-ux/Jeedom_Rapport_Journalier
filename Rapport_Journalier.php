@@ -100,6 +100,15 @@ if (!function_exists('rapportFormatDateAvecJour')) {
     }
 }
 
+if (!function_exists('rapportPeriodeMoyenneReference')) {
+    function rapportPeriodeMoyenneReference($rapport) {
+        $finPeriode = strtotime($rapport['periode']['fin']);
+        $debutMoyenne = strtotime('-31 days', $finPeriode);
+        $finMoyenne = strtotime('-1 day', $finPeriode);
+        return date('d/m', $debutMoyenne).' - '.date('d/m', $finMoyenne);
+    }
+}
+
 if (!function_exists('rapportDimanchePrecedent')) {
     function rapportDimanchePrecedent($rapport, $nom) {
         $timestamp = strtotime('-1 day', strtotime($rapport['periode']['debut']));
@@ -212,6 +221,7 @@ if (!function_exists('rapportTableauConsommations')) {
     function rapportTableauConsommations($rapport) {
         $jours = array('Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim');
         $index = array('electricite' => array(), 'eau' => array(), 'chauffage' => array());
+        $periodeMoyenne = rapportPeriodeMoyenneReference($rapport);
         
         foreach (array('electricite', 'eau', 'chauffage') as $nom) {
             foreach ($rapport['historique'][$nom] as $jour) {
@@ -233,7 +243,7 @@ if (!function_exists('rapportTableauConsommations')) {
         $html .= '<th class="colChauffage">Conso</th><th>%</th></tr>';
 
         $html .= '<tr style="background:#F5F0FC;font-size:10px;font-weight:normal;">';
-        $html .= '<td class="dateCol">Ref moy/j</td>';
+        $html .= '<td class="dateCol">Ref moy/j<br><small>('.$periodeMoyenne.')</small></td>';
         
         foreach (array('electricite', 'eau', 'chauffage') as $nom) {
             $moyenne = $rapport['moyennes31Jours'][$nom];
@@ -414,11 +424,12 @@ if (!function_exists('rapportTableauConsommationsMobile')) {
         $html = '';
         $debutSemaine = strtotime($rapport['periode']['debut']);
         $finPeriode = strtotime($rapport['periode']['fin']);
+        $periodeMoyenne = rapportPeriodeMoyenneReference($rapport);
         foreach (array('electricite', 'eau', 'chauffage') as $nom) {
             $unite = $nom === 'electricite' ? 'kWh' : ($nom === 'eau' ? 'L' : 'h');
             $decimales = $nom === 'electricite' ? 3 : ($nom === 'eau' ? 0 : 1);
             $moyenne = number_format($rapport['moyennes31Jours'][$nom], $decimales, ',', ' ');
-            $html .= '<table class="mobileConso"><tr><th colspan="'.($nom === 'chauffage' ? '3' : '4').'">'.$libelles[$nom].' <span>Moy. : '.$moyenne.' '.$unite.'/j</span></th></tr>';
+            $html .= '<table class="mobileConso"><tr><th colspan="'.($nom === 'chauffage' ? '3' : '4').'">'.$libelles[$nom].' <span>Moy. ('.$periodeMoyenne.') : '.$moyenne.' '.$unite.'/j</span></th></tr>';
             $html .= '<tr><th>Jour</th><th>Conso</th><th>Évol.</th>'.($nom === 'chauffage' ? '' : '<th>Coût</th>').'</tr>';
             $total = 0;
             $dimanchePrecedent = rapportDimanchePrecedent($rapport, $nom);
@@ -547,7 +558,7 @@ if (!function_exists('rapportBuildHtml')) {
                     continue;
                 }
                 $couleur = rapportCouleurTendanceMeteo($jour['tendance']);
-                $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
+                $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f °C', $jour['variation']);
                 $html .= '<tr><td><b>'.$meteo['jour'].'</b></td><td>'.date('d/m', strtotime(str_replace('/', '-', $meteo['date']))).'</td><td>'.rapportIconeMeteo($meteo['condition']).' '.$meteo['condition'].'</td><td><b>'.$meteo['temp_min'].' → '.$meteo['temp_max'].' °C</b></td><td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td></tr>';
                 break;
             }
@@ -714,7 +725,7 @@ $moyenneAujourdhui = round((floatval($rapport['meteo']['aujourdhui']['temp_min']
 $rapport['comparaisons']['meteo'] = array();
 foreach ($rapport['meteo'] as $jour) {
     $moyenne = round((floatval($jour['temp_min']) + floatval($jour['temp_max'])) / 2, 1);
-    $variation = abs($moyenneAujourdhui) > 0 ? round((($moyenne - $moyenneAujourdhui) / abs($moyenneAujourdhui)) * 100, 1) : null;
+    $variation = round($moyenne - $moyenneAujourdhui, 1);
     $tendance = null;
 
     if ($moyenne !== $moyenneAujourdhui) {
