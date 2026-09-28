@@ -100,6 +100,38 @@ if (!function_exists('rapportFormatDateAvecJour')) {
     }
 }
 
+if (!function_exists('rapportDimanchePrecedent')) {
+    function rapportDimanchePrecedent($rapport, $nom) {
+        $timestamp = strtotime('-1 day', strtotime($rapport['periode']['debut']));
+        $date = date('d/m/Y', $timestamp);
+        if (!isset($rapport['historique31Jours'][$nom][$date])) {
+            return null;
+        }
+
+        $valeur = round(floatval($rapport['historique31Jours'][$nom][$date]), 3);
+        $moyenne = floatval($rapport['moyennes31Jours'][$nom]);
+        $variation = null;
+        $tendance = null;
+        if ($moyenne != 0) {
+            $variation = round((($valeur - $moyenne) / abs($moyenne)) * 100, 1);
+            if ($variation > $rapport['configuration']['seuils']['variationStable']) {
+                $tendance = 1;
+            } elseif ($variation < -$rapport['configuration']['seuils']['variationStable']) {
+                $tendance = -1;
+            } else {
+                $tendance = 0;
+            }
+        }
+
+        return array(
+            'date' => date('d/m', $timestamp),
+            'valeur' => $valeur,
+            'variation' => $variation,
+            'tendance' => $tendance
+        );
+    }
+}
+
 if (!function_exists('rapportEvaluerRegles')) {
     function rapportEvaluerRegles($contexte, $regles) {
         $resultats = array();
@@ -224,6 +256,33 @@ if (!function_exists('rapportTableauConsommations')) {
             }
         }
         
+        $html .= '</tr>';
+
+        $dateDimanchePrecedent = date('d/m', strtotime('-1 day', strtotime($rapport['periode']['debut'])));
+        $html .= '<tr style="background:#FCFBFE;"><td class="dateCol"><b>Dim. préc.</b><br>'.$dateDimanchePrecedent.'</td>';
+        foreach (array('electricite', 'eau', 'chauffage') as $nom) {
+            $jour = rapportDimanchePrecedent($rapport, $nom);
+            if ($jour === null) {
+                $html .= $nom === 'chauffage'
+                    ? '<td class="col'.$nom.' muted">-</td><td class="muted">-</td>'
+                    : '<td class="col'.$nom.' muted">-</td><td class="muted">-</td><td class="muted">-</td>';
+                continue;
+            }
+
+            $decimales = $nom === 'electricite' ? 3 : ($nom === 'chauffage' ? 1 : 0);
+            $valeur = number_format($jour['valeur'], $decimales, ',', ' ');
+            $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
+            $couleur = rapportCouleurTendanceConso($jour['tendance']);
+            if ($nom === 'electricite') {
+                $cout = 0.5211 + ($jour['valeur'] * 0.2001);
+                $html .= '<td class="col'.$nom.'"><b>'.$valeur.' kWh</b></td><td><span style="color:'.$couleur.';">'.$variation.'</span></td><td><span style="font-weight:bold;">'.number_format($cout, 2, ',', ' ').' €</span></td>';
+            } elseif ($nom === 'eau') {
+                $cout = ($jour['valeur'] / 1000) * 3.67;
+                $html .= '<td class="col'.$nom.'"><b>'.$valeur.' L</b></td><td><span style="color:'.$couleur.';">'.$variation.'</span></td><td><span style="font-weight:bold;">'.number_format($cout, 2, ',', ' ').' €</span></td>';
+            } else {
+                $html .= '<td class="col'.$nom.'"><b>'.$valeur.' h</b></td><td><span style="color:'.$couleur.';">'.$variation.'</span></td>';
+            }
+        }
         $html .= '</tr>';
 
         $totaux = array('electricite' => 0, 'eau' => 0, 'chauffage' => 0);
@@ -362,6 +421,21 @@ if (!function_exists('rapportTableauConsommationsMobile')) {
             $html .= '<table class="mobileConso"><tr><th colspan="'.($nom === 'chauffage' ? '3' : '4').'">'.$libelles[$nom].' <span>Moy. : '.$moyenne.' '.$unite.'/j</span></th></tr>';
             $html .= '<tr><th>Jour</th><th>Conso</th><th>Évol.</th>'.($nom === 'chauffage' ? '' : '<th>Coût</th>').'</tr>';
             $total = 0;
+            $dimanchePrecedent = rapportDimanchePrecedent($rapport, $nom);
+            $html .= '<tr class="previous"><td><b>Dim. préc.</b><br><small>'.date('d/m', strtotime('-1 day', $debutSemaine)).'</small></td>';
+            if ($dimanchePrecedent === null) {
+                $html .= '<td>-</td><td>-</td>'.($nom === 'chauffage' ? '' : '<td>-</td>');
+            } else {
+                $variation = $dimanchePrecedent['variation'] === null ? '-' : sprintf('%+.1f %%', $dimanchePrecedent['variation']);
+                $couleur = rapportCouleurTendanceConso($dimanchePrecedent['tendance']);
+                $html .= '<td><b>'.number_format($dimanchePrecedent['valeur'], $decimales, ',', ' ').' '.$unite.'</b></td>';
+                $html .= '<td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td>';
+                if ($nom !== 'chauffage') {
+                    $cout = $nom === 'electricite' ? 0.5211 + ($dimanchePrecedent['valeur'] * 0.2001) : ($dimanchePrecedent['valeur'] / 1000) * 3.67;
+                    $html .= '<td><b>'.number_format($cout, 2, ',', ' ').' €</b></td>';
+                }
+            }
+            $html .= '</tr>';
             for ($i = 0; $i < 7; $i++) {
                 $dateJour = strtotime('+'.$i.' days', $debutSemaine);
                 $jour = isset($index[$nom][$i]) ? $index[$nom][$i] : null;
@@ -473,7 +547,7 @@ if (!function_exists('rapportBuildHtml')) {
                     continue;
                 }
                 $couleur = rapportCouleurTendanceMeteo($jour['tendance']);
-                $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f °C', $jour['variation']);
+                $variation = $jour['variation'] === null ? '-' : sprintf('%+.1f %%', $jour['variation']);
                 $html .= '<tr><td><b>'.$meteo['jour'].'</b></td><td>'.date('d/m', strtotime(str_replace('/', '-', $meteo['date']))).'</td><td>'.rapportIconeMeteo($meteo['condition']).' '.$meteo['condition'].'</td><td><b>'.$meteo['temp_min'].' → '.$meteo['temp_max'].' °C</b></td><td><span style="color:'.$couleur.';font-weight:bold;">'.$variation.'</span></td></tr>';
                 break;
             }
@@ -636,22 +710,24 @@ foreach (message::all() as $message) {
 $rapport['comparaisons'] = array();
 $rapport['statistiques'] = array();
 
-$previousMoyenne = null;
+$moyenneAujourdhui = round((floatval($rapport['meteo']['aujourdhui']['temp_min']) + floatval($rapport['meteo']['aujourdhui']['temp_max'])) / 2, 1);
 $rapport['comparaisons']['meteo'] = array();
 foreach ($rapport['meteo'] as $jour) {
     $moyenne = round((floatval($jour['temp_min']) + floatval($jour['temp_max'])) / 2, 1);
-    $variation = null;
+    $variation = abs($moyenneAujourdhui) > 0 ? round((($moyenne - $moyenneAujourdhui) / abs($moyenneAujourdhui)) * 100, 1) : null;
     $tendance = null;
 
-    if ($previousMoyenne !== null) {
-        $variation = round($moyenne - $previousMoyenne, 1);
-        if ($variation > $config['seuils']['variationMeteo']) {
+    if ($moyenne !== $moyenneAujourdhui) {
+        $ecart = $moyenne - $moyenneAujourdhui;
+        if ($ecart > $config['seuils']['variationMeteo']) {
             $tendance = 1;
-        } elseif ($variation < -$config['seuils']['variationMeteo']) {
+        } elseif ($ecart < -$config['seuils']['variationMeteo']) {
             $tendance = -1;
         } else {
             $tendance = 0;
         }
+    } else {
+        $tendance = 0;
     }
 
     $rapport['comparaisons']['meteo'][] = array(
@@ -661,12 +737,10 @@ foreach ($rapport['meteo'] as $jour) {
         'variation' => $variation,
         'tendance' => $tendance
     );
-
-    $previousMoyenne = $moyenne;
 }
 
 foreach ($rapport['historique'] as $nom => $historique) {
-    $valeurPrecedente = null;
+    $moyenneReference = floatval($rapport['moyennes31Jours'][$nom]);
     $total = 0;
     $minimum = null;
     $maximum = null;
@@ -676,8 +750,8 @@ foreach ($rapport['historique'] as $nom => $historique) {
         $variation = null;
         $tendance = null;
 
-        if ($valeurPrecedente !== null && $valeurPrecedente != 0) {
-            $variation = round((($valeur - $valeurPrecedente) / abs($valeurPrecedente)) * 100, 1);
+        if ($moyenneReference != 0) {
+            $variation = round((($valeur - $moyenneReference) / abs($moyenneReference)) * 100, 1);
             if ($variation > $config['seuils']['variationStable']) {
                 $tendance = 1;
             } elseif ($variation < -$config['seuils']['variationStable']) {
@@ -694,7 +768,6 @@ foreach ($rapport['historique'] as $nom => $historique) {
         $total += $valeur;
         $minimum = ($minimum === null) ? $valeur : min($minimum, $valeur);
         $maximum = ($maximum === null) ? $valeur : max($maximum, $valeur);
-        $valeurPrecedente = $valeur;
     }
 
     $rapport['statistiques'][$nom] = array(
